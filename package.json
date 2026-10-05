@@ -1,0 +1,22 @@
+{
+  "name": "snake-board-game",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Snake Jungle - a 3D snakes and ladders board game with moving snakes, vines, zip lines and jungle hazards.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "test": "vitest run",
+    "e2e": "node e2e/run-all.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.56.0",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  }
+}

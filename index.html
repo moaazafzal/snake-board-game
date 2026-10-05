@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#2d6b3a" />
+    <meta name="description" content="Snake Jungle: a 3D snakes and ladders race through the jungle. Snakes slither to new spots, swing on vines, ride zip lines and dodge quicksand." />
+    <title>Snake Jungle</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body class="in-menu">
+    <canvas id="scene" aria-label="Jungle board" tabindex="-1"></canvas>
+
+    <div class="hud" id="hud">
+      <div class="hud-top">
+      <header class="topbar">
+        <button class="ibtn" id="menuBtn" aria-label="Pause and open menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h14" /></svg>
+        </button>
+        <div class="turn" id="turn" aria-live="polite"></div>
+        <div class="tools">
+          <button class="ibtn" id="followBtn" aria-label="Follow the active pawn" aria-pressed="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="1.8" fill="currentColor" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></svg>
+          </button>
+          <button class="ibtn" id="mapBtn" aria-label="Show the whole board" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></svg>
+          </button>
+          <button class="ibtn" id="speedBtn" aria-label="Speed up animations" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6l9 6-9 6zM12 6l9 6-9 6z" /></svg>
+          </button>
+          <button class="ibtn" id="soundBtn" aria-label="Mute sound" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h4l5 4V6L8 10z" fill="currentColor" /><path class="waves" d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12" /><path class="cross" d="M16 9l5 6M21 9l-5 6" /></svg>
+          </button>
+        </div>
+      </header>
+      <div class="track" id="track" aria-hidden="true">
+        <div class="reach" id="reach"></div>
+        <div class="dots" id="dots"></div>
+        <div class="marker p0" id="mk0"></div>
+        <div class="marker p1" id="mk1"></div>
+      </div>
+      </div>
+      <div class="hud-bottom">
+      <footer class="bottombar">
+        <div class="card" id="card0"><span class="chip p0"></span><div><div class="name" id="name0">You</div><div class="where" id="where0">At the start</div></div><span class="badge" id="badge0"></span></div>
+        <button class="roll" id="rollBtn" aria-label="Roll the die" disabled></button>
+        <div class="card right" id="card1"><span class="chip p1"></span><div><div class="name" id="name1">Computer</div><div class="where" id="where1">At the start</div></div><span class="badge" id="badge1"></span></div>
+      </footer>
+      <div class="hint" id="hint">Space or tap the die to roll</div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" aria-live="polite"></div>
+    <div class="bignum" id="bignum" aria-hidden="true"></div>
+
+    <section class="overlay" id="menu" aria-label="Main menu">
+      <div class="panel">
+        <h1 class="title">Snake<span>Jungle</span></h1>
+        <p class="lede">Race to tile 100. Swing on vines, ride zip lines, grab golden mangoes, and watch out: the snakes move.</p>
+        <div class="btns">
+          <button class="btn" id="resumeBtn" hidden>Resume game</button>
+          <button class="btn" id="playAI">Play vs computer</button>
+          <button class="btn blue" id="play2">Play with a friend</button>
+          <button class="btn ghost" id="helpBtn">How to play</button>
+        </div>
+        <p class="fine">Space / Enter to roll · drag to look around · scroll or pinch to zoom</p>
+      </div>
+    </section>
+
+    <section class="overlay hidden" id="help" aria-label="How to play">
+      <div class="panel wide">
+        <h2 class="subtitle">How to play</h2>
+        <ul class="legend">
+          <li><i class="ic up"></i><b>Bridges, vines &amp; zip lines</b> carry you forward.</li>
+          <li><i class="ic snake"></i><b>Snakes</b> swallow you and spit you out at their tail. Every few turns a snake slithers to a new spot.</li>
+          <li><i class="ic mango"></i><b>Golden mango</b>: roll again.</li>
+          <li><i class="ic shield"></i><b>Shield charm</b> blocks the next snake bite.</li>
+          <li><i class="ic sand"></i><b>Quicksand</b>: you miss your next turn (and lose any bonus roll).</li>
+          <li><i class="ic river"></i><b>River</b>: the current washes you back 3 tiles.</li>
+          <li><i class="ic six"></i><b>Roll a 6</b> to go again. Land exactly on 100 to win; extra steps bounce you back.</li>
+        </ul>
+        <div class="btns"><button class="btn" id="helpClose">Got it</button></div>
+      </div>
+    </section>
+
+    <section class="overlay hidden" id="win" aria-label="Game over">
+      <div class="panel">
+        <h2 class="wintitle" id="winTitle">You win!</h2>
+        <p class="lede" id="winText"></p>
+        <div class="stats" id="stats"></div>
+        <div class="btns">
+          <button class="btn sun" id="againBtn">Play again</button>
+          <button class="btn" id="homeBtn">Main menu</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="overlay hidden" id="fatal" aria-label="Error">
+      <div class="panel">
+        <h2 class="wintitle small">Can't start the game</h2>
+        <p class="lede">This browser can't run WebGL 2. Please open the page in a recent Chrome, Edge, Safari or Firefox.</p>
+      </div>
+    </section>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
