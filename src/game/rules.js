@@ -12,7 +12,7 @@ export function createGame(mode = 'ai') {
     mode,
     players: [0, 1].map((i) => ({
       index: i,
-      name: vsAI ? (i === 0 ? 'You' : 'Computer') : `Player ${i + 1}`,
+      name: i === 0 ? 'Aqua' : 'Leorus',
       isAI: vsAI && i === 1,
       pos: 0,
       rolls: 0,

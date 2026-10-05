@@ -238,3 +238,132 @@ export function cruise(t, a = 0.18, b = 0.24) {
   const u = 1 - t;
   return 1 - (v * u * u) / (2 * b);
 }
+
+/* ------------------------------------------------------------- menu roaming */
+
+/** A track that keeps growing at the front and is trimmed behind the tail. Arc positions stay absolute. */
+export class GrowTrack {
+  constructor(pts) {
+    this.p = [];
+    this.cum = [];
+    this.append(pts);
+  }
+
+  append(pts) {
+    for (const v of pts) {
+      const n = this.p.length;
+      const last = this.p[n - 1];
+      if (last) {
+        const d = Math.hypot(v.x - last.x, v.z - last.z);
+        if (d < 1e-4) continue;
+        this.cum.push(this.cum[n - 1] + d);
+      } else this.cum.push(0);
+      this.p.push(new THREE.Vector3(v.x, 0, v.z));
+    }
+  }
+
+  get start() {
+    return this.cum[0];
+  }
+
+  get end() {
+    return this.cum[this.cum.length - 1];
+  }
+
+  /** Drops points that lie entirely behind arc position `s`. */
+  trim(s) {
+    let k = 0;
+    while (k < this.p.length - 2 && this.cum[k + 1] < s) k++;
+    if (k > 0) {
+      this.p.splice(0, k);
+      this.cum.splice(0, k);
+    }
+  }
+
+  at(s, out = new THREE.Vector3()) {
+    const { p, cum } = this;
+    if (s <= cum[0]) return out.copy(p[0]);
+    if (s >= cum[cum.length - 1]) return out.copy(p[p.length - 1]);
+    let lo = 0;
+    let hi = p.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] <= s) lo = mid;
+      else hi = mid;
+    }
+    const k = (s - cum[lo]) / (cum[hi] - cum[lo] || 1);
+    return out.lerpVectors(p[lo], p[hi], k);
+  }
+
+  sampleBody(sHead, L, out) {
+    const n = out.length - 1;
+    for (let i = 0; i <= n; i++) this.at(sHead - (L * i) / n, out[i]);
+    return out;
+  }
+
+  /** Position and heading at the front of the track. */
+  endPose() {
+    const n = this.p.length;
+    const b = this.p[n - 1];
+    const a = this.p[Math.max(0, n - 4)];
+    return { x: b.x, z: b.z, h: Math.atan2(b.z - a.z, b.x - a.x) };
+  }
+}
+
+/**
+ * Picks the next leg of a roaming snake: a smooth Dubins path to a random spot
+ * on the board, preferring legs that stay on the board, steer clear of props
+ * (towers, trees, posts) and keep away from the other snakes.
+ * @param pose {x, z, h} start pose (front of the current track)
+ * @param opts.obstacles [{x, z, r}]  opts.others [{x, z}]  opts.rng () => 0..1
+ */
+export function planWanderLeg(pose, { obstacles = [], others = [], rng = Math.random, bound = 17.6, R = 1.9 } = {}) {
+  let best = null;
+  const limit = bound + 1.1;
+  for (let c = 0; c < 14; c++) {
+    const target = { x: (rng() * 2 - 1) * bound, z: (rng() * 2 - 1) * bound, h: rng() * Math.PI * 2 };
+    const d = Math.hypot(target.x - pose.x, target.z - pose.z);
+    if (d < 5) continue;
+    // normal turning radius, or a tighter turn when hemmed in by the board edge
+    const paths = [
+      ...dubinsPaths(pose, target, R, 0.12),
+      ...dubinsPaths(pose, target, R * 0.68, 0.12).map((p) => ({ ...p, tight: 3 })),
+      ...dubinsPaths(pose, target, R * 0.5, 0.12).map((p) => ({ ...p, tight: 7 })),
+    ];
+    if (!paths.length) continue;
+    for (const path of paths) {
+    let cost = Math.abs(path.length - 15) * 0.25 + (path.tight || 0);
+    // don't end a leg facing the board edge: the next leg would need a hairpin there
+    const ahead = { x: target.x + Math.cos(target.h) * 5, z: target.z + Math.sin(target.h) * 5 };
+    cost += (Math.max(0, Math.abs(ahead.x) - bound) + Math.max(0, Math.abs(ahead.z) - bound)) * 6;
+    const pts = path.pts;
+    for (let i = 2; i < pts.length; i += 3) {
+      const p = pts[i];
+      const ex = Math.max(0, Math.abs(p.x) - limit) + Math.max(0, Math.abs(p.z) - limit);
+      cost += ex * 60;
+      for (const o of obstacles) {
+        const dd = Math.hypot(p.x - o.x, p.z - o.z);
+        const clear = o.r + 0.9;
+        if (dd < clear) cost += (clear - dd) * 25;
+      }
+      for (const o of others) {
+        const dd = Math.hypot(p.x - o.x, p.z - o.z);
+        if (dd < 2.4) cost += (2.4 - dd) * 4;
+      }
+    }
+    if (!best || cost < best.cost) best = { cost, path };
+    }
+  }
+  if (!best) {
+    // fallback: a gentle arc back toward the middle of the board
+    const back = { x: pose.x * 0.3, z: pose.z * 0.3, h: Math.atan2(-pose.z, -pose.x) };
+    const p = dubinsPaths(pose, back, R, 0.12);
+    if (!p.length) {
+      const pts = [];
+      for (let i = 0; i <= 40; i++) pts.push(new THREE.Vector3(pose.x + Math.cos(pose.h) * i * 0.1, 0, pose.z + Math.sin(pose.h) * i * 0.1));
+      return pts;
+    }
+    best = { path: p.reduce((m, q) => (q.length < m.length ? q : m)) };
+  }
+  return waveStraights(best.path);
+}

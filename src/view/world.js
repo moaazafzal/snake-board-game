@@ -1,6 +1,7 @@
 // Renderer, scene, lights, camera rig and adaptive quality.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { PALETTE } from './layout.js';
 
 const isTouch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
@@ -22,8 +23,8 @@ export class World {
     this.renderer.setPixelRatio(this.maxRatio);
     this.renderer.setSize(innerWidth, innerHeight, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMapping = THREE.NeutralToneMapping; // keeps hues and saturation true to the art
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
@@ -35,6 +36,15 @@ export class World {
 
     this.addSky();
     this.addLights();
+    // soft studio reflections for the glossy heroes (Lambert scenery ignores it)
+    try {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      this.scene.environmentIntensity = 0.45;
+      pmrem.dispose();
+    } catch (e) {
+      console.warn('environment map unavailable', e);
+    }
 
     this.controls = new OrbitControls(this.camera, canvas);
     Object.assign(this.controls, {
@@ -185,10 +195,11 @@ class CameraRig {
     const aspect = camera.aspect;
     let lockOn = true;
     if (this.mode === 'menu') {
-      const a = this.t * 0.045 + 0.6;
-      const d = this.fitDistance(22) * 0.9;
+      // slow, high orbit so the roaming snakes stay in view above the trees
+      const a = this.t * 0.04 + 0.6;
+      const d = this.fitDistance(22) * 0.95;
       this.goalTarget.set(0, 0, 0);
-      this.goalPos.set(Math.sin(a) * d * 0.75, d * 0.62, Math.cos(a) * d * 0.75);
+      this.goalPos.set(Math.sin(a) * d * 0.5, d * 0.86, Math.cos(a) * d * 0.5);
     } else if (this.mode === 'map') {
       const d = this.fitDistance(23);
       const el = THREE.MathUtils.degToRad(aspect < 1 ? 72 : 60);
@@ -203,7 +214,7 @@ class CameraRig {
       } else {
         const k = THREE.MathUtils.clamp(1.2 / aspect, 1, 1.9);
         this.goalTarget.copy(this.followTarget).y += 0.8;
-        this.goalPos.copy(this.goalTarget).add(this.tmp.set(0, 10.5 * k, 12.5 * k));
+        this.goalPos.copy(this.goalTarget).add(this.tmp.set(0, 9.2 * k, 11.6 * k));
       }
     } else {
       lockOn = false; // free look: user owns the camera

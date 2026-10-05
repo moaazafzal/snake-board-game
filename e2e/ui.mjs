@@ -20,6 +20,16 @@ const sync = async (page, name) => {
 {
   const { browser, page, logs } = await open();
   ok('menu shown on load', !(await page.$eval('#menu', (e) => e.classList.contains('hidden'))));
+  const brand = await page.evaluate(() => {
+    const a = document.querySelector('.credit');
+    const imgs = [...document.querySelectorAll('#menu img')];
+    return { text: a && a.textContent.replace(/\s+/g, ' ').trim(), href: a && a.href, loaded: imgs.every((i) => i.complete && i.naturalWidth > 0), n: imgs.length };
+  });
+  ok('menu credit: Made by Moaaz, Aqua Games (logo + mascots load)', /Made by Moaaz/.test(brand.text) && /Aqua Games/.test(brand.text) && /aquagames/.test(brand.href) && brand.loaded && brand.n === 3, JSON.stringify(brand));
+  const lairHeads = await page.evaluate(() => window.__game.view.snakes.map((s) => s.def.routes[0]).map((r, i) => [window.__game.view.snakes[i].spineOf(r)[0].x, window.__game.view.snakes[i].spineOf(r)[0].z]));
+  await sleep(4500);
+  const roam = await page.evaluate((lairs) => window.__game.view.snakes.map((s, i) => ({ d: Math.hypot(s.base[0].x - lairs[i][0], s.base[0].z - lairs[i][1]), edge: Math.max(Math.abs(s.base[0].x), Math.abs(s.base[0].z)) })), lairHeads);
+  ok('main menu: snakes roam the board', roam.filter((r) => r.d > 1.5).length >= 5 && roam.every((r) => r.edge < 19.8), roam.map((r) => r.d.toFixed(1)).join(' '));
   ok('HUD hidden behind menu', await page.evaluate(() => document.body.classList.contains('in-menu')));
   await page.keyboard.press('Space');
   await sleep(300);
@@ -36,8 +46,9 @@ const sync = async (page, name) => {
   await page.click('#playAI');
   await sleep(900);
   let s = await st(page);
-  ok('vs computer starts', s.started && s.mode === 'ai' && s.p[0].name === 'You' && s.p[1].name === 'Computer');
-  ok('turn label', (await page.textContent('#turn')) === 'Your turn');
+  ok('vs computer starts (Aqua vs Leorus)', s.started && s.mode === 'ai' && s.p[0].name === 'Aqua' && s.p[1].name === 'Leorus');
+  ok('HUD roles + avatars', (await page.textContent('#role0')) === 'YOU' && (await page.textContent('#role1')) === 'CPU' && (await page.$$eval('.card img.avatar', (im) => im.every((i) => i.complete && i.naturalWidth > 0))));
+  ok('turn label', (await page.textContent('#turn')) === 'Your turn, Aqua', await page.textContent('#turn'));
   ok('roll enabled on your turn', !(await page.$eval('#rollBtn', (e) => e.disabled)));
   ok('follow camera by default', (await attr(page, 'followBtn', 'aria-pressed')) === 'true');
   ok('reach preview shown', (await page.$eval('#reach', (e) => e.style.width)) !== '0px' && (await page.evaluate(() => window.__game.view.reach.items.filter((i) => i.g.visible).length)) === 6);
@@ -141,6 +152,17 @@ const sync = async (page, name) => {
   await waitIdle(page);
   await sync(page, 'after pause/resume');
 
+  // ---- pause between turns: snakes roam behind the menu, then snap back on resume
+  await waitIdle(page);
+  const beforePause = await page.evaluate(() => window.__game.view.snakes.map((s) => [s.base[0].x, s.base[0].z]));
+  await page.click('#menuBtn');
+  await sleep(3500);
+  const pausedMoved = await page.evaluate((b) => window.__game.view.snakes.filter((s, i) => Math.hypot(s.base[0].x - b[i][0], s.base[0].z - b[i][1]) > 1).length, beforePause);
+  ok('paused menu: snakes roam', pausedMoved >= 4, `${pausedMoved} moving`);
+  await page.click('#resumeBtn');
+  await sleep(300);
+  await sync(page, 'resume after roaming (snakes back in lairs)');
+
   // ---- fuzz: interrupt turns at random moments, then resume or restart
   let fuzzBad = 0;
   for (let i = 0; i < 24; i++) {
@@ -198,7 +220,7 @@ const sync = async (page, name) => {
   await sleep(500);
   await shot(page, 'ui_win');
   const wt = await page.evaluate(() => [document.getElementById('winTitle').textContent, document.getElementById('winText').textContent, document.getElementById('stats').innerText]);
-  ok('win panel text', wt[0] === 'Player 1 wins!' && /reached tile 100 in \d+ rolls?\./.test(wt[1]) && /shortcut/.test(wt[2]), wt.slice(0, 2).join(' | '));
+  ok('win panel text', wt[0] === 'Aqua wins!' && /reached tile 100 in \d+ rolls?\./.test(wt[1]) && /shortcut/.test(wt[2]), wt.slice(0, 2).join(' | '));
   ok('roll disabled after win', await page.$eval('#rollBtn', (e) => e.disabled));
   await page.keyboard.press('Space');
   await sleep(300);

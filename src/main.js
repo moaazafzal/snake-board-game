@@ -33,6 +33,7 @@ async function boot() {
     return fatal();
   }
   const game = new Controller(view, ui);
+  view.startWander(); // the main menu comes alive: snakes roam the board
 
   /* ---------------------------------------------------------- toggles */
   const followBtn = $('followBtn');

@@ -49,7 +49,7 @@ for (let g = 0; g < GAMES; g++) {
       }
       const toasts = await page.evaluate(() => window.__toasts.splice(0));
       for (const t of toasts) {
-        const key = t.replace(/\d+/g, '#').replace(/(You|Computer|Player #)/g, 'X').replace(/(Mossback|Ember|Violet|Lagoon|Tiger|Sunny|Rosa)/, 'S');
+        const key = t.replace(/\d+/g, '#').replace(/(You|Aqua|Leorus)/g, 'X').replace(/(Mossback|Ember|Violet|Lagoon|Tiger|Sunny|Rosa)/, 'S');
         if (!seen.has(key)) { seen.set(key, t); await shot(page, `${TAG}_ev_${seen.size}`); }
       }
     }

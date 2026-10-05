@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { World } from './world.js';
 import { buildDecor } from './decor.js';
 import { SnakeView, spineFor } from './snake.js';
-import { planCrawl, cruise } from './slither.js';
+import { planCrawl, cruise, GrowTrack, planWanderLeg, polyLength } from './slither.js';
 import { buildShortcut } from './shortcuts.js';
 import { Pawn } from './pawn.js';
 import { Dice, Collectible, ReachMarkers, Particles } from './props.js';
@@ -24,7 +24,7 @@ export class GameView {
     this.decor = buildDecor(scene, font);
     this.snakes = SNAKES.map((def, i) => new SnakeView(scene, def, def.routes[0], i));
     this.shortcuts = new Map(SHORTCUTS.map((sc) => [sc.from, buildShortcut(scene, sc)]));
-    this.pawns = [new Pawn(scene, PALETTE.p0, 0), new Pawn(scene, PALETTE.p1, 1)];
+    this.pawns = [new Pawn(scene, 'aqua'), new Pawn(scene, 'leorus')];
     this.pawns.forEach((p) => (p.onStep = () => sfx.step()));
     this.dice = new Dice(scene);
     this.mangoes = new Map(MANGOES.map((t) => [t, new Collectible(scene, t, 'mango')]));
@@ -35,6 +35,15 @@ export class GameView {
     this.particles = new Particles(scene);
     this.sunk = [false, false];
     this.active = 0;
+    this.idleFacing = true;
+    // props roaming snakes steer around: shortcut structures and the finish idol with its flags
+    const fin = tilePos(100);
+    this.obstacles = [
+      ...[...this.shortcuts.values()].flatMap((sc) => sc.obstacles?.() || []),
+      { x: fin.x - 1.15, z: fin.z - 1.15, r: 1.3 },
+      ...[[1.6, 1.6], [-1.6, 1.6], [1.6, -1.6], [-1.6, -1.6]].map(([dx, dz]) => ({ x: fin.x + dx, z: fin.z + dz, r: 0.25 })),
+    ];
+    this.wanderers = [];
 
     // pulsing ring under the pawn whose turn it is
     this.turnRing = new THREE.Mesh(
@@ -46,11 +55,17 @@ export class GameView {
 
     const tmp = new THREE.Vector3();
     this.world.onUpdate((dt) => {
+      this.updateWander(dt);
       this.anim.update(dt);
       const t = this.anim.time;
       this.decor.update(dt);
       for (const s of this.snakes) s.update(dt);
       for (const sc of this.shortcuts.values()) sc.update?.(dt);
+      // between turns the heroes turn to face the camera; while acting they face where they go
+      if (this.idleFacing) {
+        const cam = this.world.camera.position;
+        for (const p of this.pawns) if (p.root.visible) p.faceDir(tmp.set(cam.x - p.root.position.x, 0, cam.z - p.root.position.z));
+      }
       for (const p of this.pawns) p.update(dt);
       for (const c of this.mangoes.values()) c.update(dt);
       for (const c of this.shieldItems.values()) c.update(dt);
@@ -67,6 +82,76 @@ export class GameView {
     this.world.start();
   }
 
+  /* ------------------------------------------------ main-menu roaming */
+
+  /** Snakes leave their lairs and slither around the board (main menu only). */
+  startWander() {
+    if (this.wanderers.length) return;
+    this.wanderers = this.snakes.map((sn, i) => {
+      const track = new GrowTrack(sn.base.slice().reverse()); // tail -> head
+      sn.crawling = true;
+      sn.flick = 0;
+      sn.look = null;
+      return {
+        sn,
+        track,
+        s: track.end,
+        L: polyLength(sn.base),
+        speed: 2.2 + Math.random() * 1.2,
+        v: 0,
+        delay: 0.3 + i * 0.35 + Math.random() * 0.6,
+        body: sn.base.map((p) => p.clone()),
+        homes: null,
+      };
+    });
+  }
+
+  stopWander() {
+    if (!this.wanderers.length) return;
+    for (const w of this.wanderers) {
+      w.sn.crawling = false;
+      w.sn.crawlLift = 0;
+    }
+    this.wanderers = [];
+  }
+
+  /** Puts every snake back in its lair for the given state (after roaming). */
+  restoreSnakes(state) {
+    this.stopWander();
+    this.snakes.forEach((s, i) => s.setRoute(SNAKES[i].routes[state.snakeRoute[i]]));
+  }
+
+  updateWander(dt) {
+    if (!this.wanderers.length) return;
+    for (const w of this.wanderers) {
+      if (w.delay > 0) {
+        w.delay -= dt;
+        continue;
+      }
+      // ease up to a leisurely cruising speed
+      w.v = Math.min(w.speed, w.v + dt * 1.1);
+      w.s += w.v * dt;
+      if (w.track.end - w.s < 6) {
+        const others = [];
+        for (const o of this.wanderers) {
+          if (o === w) continue;
+          for (let r = 0; r < o.body.length; r += 12) others.push(o.body[r]);
+          for (let a = o.s; a < o.track.end; a += 1.2) others.push(o.track.at(a));
+        }
+        // pawns standing on the board (paused match) are props to steer around too;
+        // the body follows the head's path, so a clear path keeps the whole body clear
+        const pawnProps = this.pawns
+          .filter((p) => p.root.visible && Math.abs(p.root.position.x) < 20.5 && Math.abs(p.root.position.z) < 20.5)
+          .map((p) => ({ x: p.root.position.x, z: p.root.position.z, r: 0.8 }));
+        w.track.append(planWanderLeg(w.track.endPose(), { obstacles: [...this.obstacles, ...pawnProps], others }).slice(1));
+      }
+      w.track.trim(w.s - w.L - 2);
+      w.track.sampleBody(w.s, w.L, w.body);
+      w.sn.setBody(w.body);
+      w.sn.crawlLift = Math.min(0.25, w.sn.crawlLift + dt * 0.4);
+    }
+  }
+
   setSpeed(fast) {
     this.anim.speed = fast ? 1.9 : 1;
   }
@@ -74,6 +159,7 @@ export class GameView {
   /** Snap every object to match a game state (used for new games and recovery). */
   reset(state) {
     this.epoch = (this.epoch || 0) + 1; // cleanups of cancelled animations must not touch the new scene
+    this.stopWander();
     this.anim.cancelAll();
     this.world.rig.focus = null;
     this.world.rig.shake = 0;
@@ -90,9 +176,7 @@ export class GameView {
       pawn.root.rotation.set(0, 0, 0);
       pawn.root.scale.setScalar(1);
       pawn.body.position.set(0, 0, 0);
-      pawn.body.rotation.set(0, 0, 0);
-      pawn.setArms(0);
-      pawn.legSwing(0);
+      pawn.rest();
       pawn.setMood('normal', 0);
       pawn.bubble.visible = p.shield;
       pawn.bubble.scale.setScalar(1);
@@ -100,6 +184,8 @@ export class GameView {
       this.sunk[i] = false;
       if (p.skip) this.setSunk(i, true);
       pawn.faceInstant(new THREE.Vector3(0, 0, -1));
+      if (p.skip) pawn.act('stuck');
+      pawn.snapPose();
     });
     this.world.rig.followTarget.copy(this.pawns[state.current].root.position);
     this.setActive(state.current);
@@ -108,7 +194,7 @@ export class GameView {
   setActive(i, ring = true) {
     this.active = i;
     this.ringOn = ring;
-    this.turnRing.material.color.set(i === 0 ? '#7fc0ff' : '#ffb48a');
+    this.turnRing.material.color.set(i === 0 ? '#7fd0ff' : '#ffc46a');
   }
 
   hideTurnRing() {
@@ -118,6 +204,8 @@ export class GameView {
   setSunk(i, on) {
     this.sunk[i] = on;
     this.pawns[i].body.position.y = on ? -0.45 : 0;
+    if (on) this.pawns[i].act('stuck');
+    else this.pawns[i].rest();
   }
 
   showReach(list) { this.reach.show(list); }
@@ -140,7 +228,11 @@ export class GameView {
     const to = pawn.root.position.clone().addScaledVector(ahead, 1.6).addScaledVector(side, i === 0 ? -1.3 : 1.3);
     sfx.roll();
     const a = this.anim;
-    a.fx(0.25, (k) => pawn.setArms(-2.2 * Math.sin(Math.PI * k)));
+    pawn.act('throw');
+    a.fx(0.6, (k) => {
+      pawn.k = k;
+      if (k >= 1 && pawn.action === 'throw') pawn.rest();
+    });
     await this.dice.throw(a, from, to, value);
     sfx.diceLand();
     this.particles.emit(to.clone().setY(0.1), 6, ['#e9dcc0', '#c9b48e'], { speed: 1.2, up: 1.2, life: 0.5, size: 0.7 });
@@ -155,25 +247,27 @@ export class GameView {
     const from = pawn.root.position.clone();
     const to = pawnSpot(tile, i);
     pawn.faceDir(to.clone().sub(from));
-    pawn.idle = false;
+    pawn.act('hop');
     sfx.hop(n);
     await this.anim.tween(last ? 0.36 : 0.3, (k) => {
+      pawn.k = k;
       pawn.root.position.lerpVectors(from, to, k);
       pawn.root.position.y += Math.sin(Math.PI * k) * (last ? 1.05 : 0.75);
       pawn.squash = -0.12 * Math.sin(Math.PI * k);
-      pawn.setArms(-0.6 * Math.sin(Math.PI * k));
     }, ease.inOutSine);
     pawn.squash = last ? 0.28 : 0.16;
-    pawn.idle = true;
+    if (last) pawn.rest();
     sfx.land();
-    this.particles.emit(to.clone().setY(0.1), last ? 6 : 2, LEAVES, { speed: 1, up: 1, life: 0.4, size: 0.6 });
+    this.particles.emit(to.clone().setY(0.1), last ? 8 : 3, pawn.particleColors, { speed: 1.1, up: 1.2, life: 0.45, size: 0.6 });
   }
 
   async turnAround(i) {
     const pawn = this.pawns[i];
     pawn.setMood('wow', 1.2);
+    pawn.act('hop');
     sfx.bounce();
     await this.anim.tween(0.45, (k) => {
+      pawn.k = k;
       pawn.body.position.y = Math.sin(Math.PI * k) * 0.5;
     }, ease.outQuad);
   }
@@ -203,23 +297,24 @@ export class GameView {
     pawn.setMood('scared', 30);
     sfx.sand();
     const at = pawn.root.position.clone();
+    pawn.act('sink');
     await this.anim.tween(1.3, (k) => {
       pawn.body.position.y = -0.45 * ease.inOutSine(k);
-      pawn.body.rotation.z = Math.sin(k * 16) * 0.08 * (1 - k);
-      pawn.setArms(-2.4 * k);
       if (Math.random() < 0.3) this.particles.emit(at.clone().add(new THREE.Vector3((Math.random() - 0.5) * 1.4, 0.15, (Math.random() - 0.5) * 1.4)), 1, ['#a57c47', '#c99a5c'], { speed: 0.4, up: 0.9, life: 0.5, size: 0.8 });
     });
-    pawn.body.rotation.z = 0;
+    pawn.act('stuck');
     this.sunk[i] = true;
   }
 
   async climbOut(i) {
     const pawn = this.pawns[i];
     sfx.pop();
+    pawn.act('climb');
     await this.anim.tween(0.9, (k) => {
+      pawn.phase = k * 22;
       pawn.body.position.y = -0.45 * (1 - ease.outBack(k));
-      pawn.setArms(-2.4 * (1 - k));
     });
+    pawn.rest();
     pawn.body.position.y = 0;
     pawn.setMood('normal', 0);
     this.sunk[i] = false;
@@ -235,18 +330,18 @@ export class GameView {
     const curve = new THREE.CatmullRomCurve3(pts.length > 1 ? pts : [pts[0], pts[0].clone()]);
     const spin = pawn.facing;
     let last = 0;
+    pawn.act('swim');
     await this.anim.tween(2.0, (k) => {
       const p = curve.getPointAt(ease.inOutSine(k));
       pawn.root.position.copy(p);
       pawn.root.position.y += Math.sin(k * Math.PI * 6) * 0.08 - 0.2 * Math.sin(Math.PI * k);
       pawn.facing = pawn.targetFacing = spin + k * Math.PI * 4;
-      pawn.setArms(-1.6 + Math.sin(k * 30) * 0.4);
       if (k - last > 0.06) {
         last = k;
         this.particles.emit(p.clone().setY(0.25), 2, ['#e8fbff', '#9fe3f5', '#ffffff'], { speed: 1.2, up: 2.2, life: 0.6, size: 0.8 });
       }
     });
-    pawn.setArms(0);
+    pawn.rest();
     pawn.squash = 0.25;
   }
 
@@ -264,8 +359,7 @@ export class GameView {
       await sc.ride(pawn, this.anim, i);
     } finally {
       this.unfocus();
-      pawn.setArms(0);
-      pawn.legSwing(0);
+      pawn.rest();
       pawn.root.rotation.x = pawn.root.rotation.z = 0;
     }
     pawn.squash = 0.3;
@@ -281,6 +375,7 @@ export class GameView {
     const focus = target.clone();
     this.focusOn(focus, 12);
     pawn.setMood('scared', 10);
+    pawn.act('scared');
     snake.look = target.clone().add(new THREE.Vector3(0, 0.6, 0));
     snake.strikeTarget.copy(target);
     sfx.hiss();
@@ -290,9 +385,7 @@ export class GameView {
       await a.tween(0.55, (k) => {
         snake.rear = k;
         snake.jaw = k * 0.35;
-        pawn.body.rotation.z = Math.sin(k * 20) * 0.06;
       }, ease.outCubic);
-      pawn.body.rotation.z = 0;
       await a.wait(0.12);
       // 2. strike: fast thrust with the mouth wide open
       await a.tween(0.17, (k) => {
@@ -331,7 +424,7 @@ export class GameView {
       snake.rear = 0;
       snake.jaw = 0;
       snake.look = null;
-      pawn.body.rotation.z = 0;
+      pawn.rest();
     }
   }
 
@@ -340,6 +433,7 @@ export class GameView {
     const spot = pawnSpot(tile, i);
     pawn.root.position.copy(spot);
     pawn.root.visible = true;
+    pawn.rest();
     pawn.setMood('dizzy', 2.5);
     sfx.pop();
     this.particles.emit(spot.clone().add(new THREE.Vector3(0, 0.5, 0)), 16, LEAVES, { speed: 2, up: 2.5, life: 0.8 });
@@ -457,15 +551,15 @@ export class GameView {
     const base = pawn.root.position.clone();
     const spin0 = pawn.facing;
     this.focusOn(base.clone(), 16);
+    pawn.act('cheer');
     for (let n = 0; n < 4; n++) {
       this.particles.emit(base.clone().add(new THREE.Vector3(0, 2.2, 0)), 50, CONFETTI, { speed: 3.2, up: 4.2, gravity: 3, life: 2.2, flat: true, size: 0.8 });
       this.world.rig.shake = 0.1;
       await this.anim.tween(0.45, (k) => {
         pawn.root.position.y = base.y + Math.sin(Math.PI * k) * 0.9;
         pawn.facing = pawn.targetFacing = spin0 + (n + k) * Math.PI * 0.5;
-        pawn.setArms(-2.6 * Math.sin(Math.PI * k));
+        pawn.k = k;
       });
     }
-    pawn.setArms(0);
   }
 }

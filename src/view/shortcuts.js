@@ -84,6 +84,7 @@ class Bridge {
         const pst = post(1.6);
         pst.position.copy(P).addScaledVector(side, s * 0.95).addScaledVector(dir, d * 0.25);
         g.add(pst);
+        (this.posts ||= []).push(pst.position.clone());
       }
       // hangers
       for (let i = 1; i < 12; i++) {
@@ -97,6 +98,11 @@ class Bridge {
     this.len = this.curve.getLength();
   }
 
+  /** Props a roaming snake should steer around ({x, z, r}). */
+  obstacles() {
+    return this.posts.map((p) => ({ x: p.x, z: p.z, r: 0.35 }));
+  }
+
   async ride(pawn, anim, player) {
     const start = pawn.root.position.clone();
     const end = pawnSpot(this.sc.to, player);
@@ -106,20 +112,21 @@ class Bridge {
       pawn.root.position.lerpVectors(start, first, k).y += Math.sin(Math.PI * k) * 0.6;
     }, ease.outQuad);
     let lastStep = 0;
+    pawn.act('walk');
     await anim.tween(dur, (k) => {
       const p = this.curve.getPointAt(k);
       const tan = this.curve.getTangentAt(Math.min(0.999, k));
       pawn.root.position.copy(p);
       pawn.root.position.y += Math.abs(Math.sin(k * this.len * 2.2)) * 0.12;
       pawn.faceDir(tan);
-      pawn.walkCycle(k * this.len * 2.2);
+      pawn.phase = k * this.len * 2.6;
       if (k - lastStep > 0.08) { lastStep = k; pawn.onStep?.(); }
     }, ease.inOutSine);
     const last = pawn.root.position.clone();
     await anim.tween(0.35, (k) => {
       pawn.root.position.lerpVectors(last, end, k).y += Math.sin(Math.PI * k) * 0.5;
     }, ease.outQuad);
-    pawn.walkCycle(0);
+    pawn.rest();
   }
 }
 
@@ -135,6 +142,7 @@ class Vine {
     // a tall tree beside the midpoint with a branch reaching over it
     const g = new THREE.Group();
     const base = mid.clone().addScaledVector(side, 3.4);
+    this.trunk = base.clone();
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.75, 13.8, 7).translate(0, 6.9, 0), lambert('#7a5232'));
     trunk.position.copy(base).setY(-1.8);
     trunk.castShadow = true;
@@ -176,6 +184,10 @@ class Vine {
     this.place();
   }
 
+  obstacles() {
+    return [{ x: this.trunk.x, z: this.trunk.z, r: 1.0 }];
+  }
+
   place() {
     this.vine.setEnds(this.pivot, this.end);
     this.leaves.forEach((l, i) => {
@@ -207,9 +219,9 @@ class Vine {
         this.place();
       }, ease.inOutSine);
       // jump up and grab
+      pawn.act('hang');
       await anim.tween(0.35, (k) => {
         pawn.root.position.lerpVectors(start, hangA.clone().setY(1.1), k).y += Math.sin(Math.PI * k) * 0.8;
-        pawn.setArms(-2.6 * k);
       }, ease.outQuad);
       // pendulum swing to the destination
       const hangB = this.B.clone().setY(2.3);
@@ -222,7 +234,7 @@ class Vine {
         pawn.root.position.copy(hand).setY(hand.y - 1.2);
         pawn.faceDir(dir);
         pawn.root.rotation.z = Math.sin(k * Math.PI * 2) * 0.12;
-        pawn.legSwing(Math.sin(k * Math.PI * 3) * 0.6);
+        pawn.phase = k * Math.PI * 3;
       }, ease.inOutSine);
       // let go
       const land = pawnSpot(this.sc.to, player);
@@ -232,12 +244,13 @@ class Vine {
         this.end.x += Math.sin(k * Math.PI * 3) * (1 - k) * 0.8;
         this.place();
       }, ease.outQuad);
+      pawn.act('hop');
       await anim.tween(0.4, (k) => {
+        pawn.k = 0.5 + k * 0.5;
         pawn.root.position.lerpVectors(p0, land, k).y += Math.sin(Math.PI * k) * 0.5;
-        pawn.setArms(-2.6 * (1 - k));
         pawn.root.rotation.z = 0;
       }, ease.outQuad);
-      pawn.legSwing(0);
+      pawn.rest();
       await anim.wait(0.45);
     } finally {
       this.busy = false;
@@ -312,6 +325,13 @@ class Zip {
     this.pulley.position.copy(this.cable.getPointAt(0));
   }
 
+  obstacles() {
+    return [
+      { x: this.towerPos.x, z: this.towerPos.z, r: 1.7 },
+      { x: this.poleTop.x, z: this.poleTop.z, r: 0.45 },
+    ];
+  }
+
   async ride(pawn, anim, player) {
     const start = pawn.root.position.clone();
     const foot = this.ladderBase.clone().addScaledVector(this.dir, 0.45).setY(0);
@@ -320,16 +340,16 @@ class Zip {
     }, ease.outQuad);
     pawn.faceDir(this.dir.clone().negate());
     // climb
+    pawn.act('climb');
     await anim.tween(1.1, (k) => {
       pawn.root.position.copy(foot).setY(k * (this.H + 0.1));
-      pawn.setArms(-2.4 + Math.sin(k * 26) * 0.5);
-      pawn.legSwing(Math.sin(k * 26) * 0.5);
+      pawn.phase = k * 26;
     }, ease.inOutSine);
     const top = this.cable.getPointAt(0);
     const p1 = pawn.root.position.clone();
+    pawn.act('hang');
     await anim.tween(0.4, (k) => {
       pawn.root.position.lerpVectors(p1, top.clone().setY(top.y - 1.5), k);
-      pawn.setArms(-2.8);
     }, ease.inOutQuad);
     pawn.faceDir(this.dir);
     // slide down the cable
@@ -339,17 +359,18 @@ class Zip {
       this.pulley.position.copy(p);
       pawn.root.position.copy(p).setY(p.y - 1.5);
       pawn.root.rotation.x = Math.sin(k * Math.PI) * 0.25;
-      pawn.legSwing(Math.sin(k * 20) * 0.3);
+      pawn.phase = k * 20;
       if (k - whoosh > 0.25) { whoosh = k; pawn.onStep?.(); }
     }, ease.inCubic);
     pawn.root.rotation.x = 0;
     const p2 = pawn.root.position.clone();
     const end = pawnSpot(this.sc.to, player);
     anim.fx(1.2, (k) => this.pulley.position.copy(this.cable.getPointAt(1 - ease.inOutSine(k))));
+    pawn.act('hop');
     await anim.tween(0.45, (k) => {
+      pawn.k = 0.5 + k * 0.5;
       pawn.root.position.lerpVectors(p2, end, k).y += Math.sin(Math.PI * k) * 0.3;
-      pawn.setArms(-2.8 * (1 - k));
     }, ease.outQuad);
-    pawn.legSwing(0);
+    pawn.rest();
   }
 }

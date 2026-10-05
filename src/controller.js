@@ -30,15 +30,13 @@ export class Controller {
   }
 
   /* ----------------------------------------------------------- phrasing */
-  isYou(i) {
-    return this.state.mode === 'ai' && !this.state.players[i].isAI;
-  }
+  /** the hero's name: Aqua or Leorus */
   who(i) {
-    return this.isYou(i) ? 'You' : this.state.players[i].name;
+    return this.state.players[i].name;
   }
-  /** conjugates a verb for "You" vs a third person: verb(i, 'roll', 'rolls') */
-  verb(i, you, other) {
-    return `${this.who(i)} ${this.isYou(i) ? you : other}`;
+  /** "Aqua rolls", "Leorus misses" (the heroes are always named) */
+  verb(i, _you, other) {
+    return `${this.who(i)} ${other}`;
   }
 
   /* -------------------------------------------------------------- state */
@@ -49,6 +47,7 @@ export class Controller {
   }
 
   render() {
+    this.view.idleFacing = !this.busy;
     this.ui.render(this.state, this.display, { started: this.started, busy: this.busy, canRoll: this.canRoll() });
   }
 
@@ -68,7 +67,7 @@ export class Controller {
     this.ui.renderTrack(this.state);
     this.ui.clearToast();
     this.ui.setDie(5);
-    this.ui.toast(mode === 'ai' ? 'Roll to start your jungle race!' : 'Player 1 rolls first');
+    this.ui.toast(mode === 'ai' ? 'Roll to start, Aqua! Leorus is waiting' : 'Aqua rolls first');
     this.beginTurn();
   }
 
@@ -89,6 +88,8 @@ export class Controller {
       this.ui.setResumable(false);
     }
     this.view.hideReach();
+    // snakes roam the board behind the menu, unless a turn is mid-animation
+    if (!this.busy) this.view.startWander();
     this.prevCamMode = this.view.world.rig.mode === 'menu' ? 'follow' : this.view.world.rig.mode;
     this.view.world.rig.setMode('menu');
     this.ui.show('win', false);
@@ -100,6 +101,7 @@ export class Controller {
     if (!this.started || !this.paused) return;
     this.paused = false;
     this.anim.paused = false;
+    if (!this.busy) this.view.restoreSnakes(this.state); // roaming snakes return to their lairs
     this.ui.show('menu', false);
     this.view.world.rig.setMode(this.prevCamMode || 'follow');
     this.render();
@@ -298,7 +300,7 @@ export class Controller {
     this.view.hideTurnRing();
     this.render();
     const humanLost = s.mode === 'ai' && s.players[w].isAI;
-    this.ui.toast(humanLost ? 'The computer made it first!' : `${this.who(w)} reached the golden idol!`, 'good');
+    this.ui.toast(humanLost ? 'Leorus made it first!' : `${this.who(w)} reached the golden idol!`, 'good');
     humanLost ? sfx.lose() : sfx.win();
     try {
       await this.view.celebrate(w);

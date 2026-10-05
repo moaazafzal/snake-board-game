@@ -89,8 +89,16 @@ body.in-menu .hud * { pointer-events: none !important; }
 .card.right { flex-direction: row-reverse; justify-self: end; text-align: right; padding: 8px 8px 8px 14px; }
 .card.active { border-color: var(--sun); transform: translateY(-4px) scale(1.03); opacity: 1; }
 .chip { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.85); }
-.card .name { font-size: 18px; font-weight: 700; line-height: 1.05; white-space: nowrap; }
-.card .where { font-size: 13px; font-weight: 600; opacity: 0.85; white-space: nowrap; }
+.avatar { flex: none; width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); transition: transform 0.25s; }
+.card.active .avatar { animation: hop 1.2s ease-in-out infinite; }
+@keyframes hop { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-4px) rotate(-4deg); } }
+.role { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.18); vertical-align: 3px; }
+#card0 .role { background: rgba(60, 156, 240, 0.55); }
+#card1 .role { background: rgba(240, 148, 60, 0.6); }
+.card { overflow: hidden; }
+.card > div { min-width: 0; }
+.card .name { font-size: 18px; font-weight: 700; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .where { font-size: 13px; font-weight: 600; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge { font-size: 16px; line-height: 1; min-width: 0; }
 .badge:empty { display: none; }
 
@@ -143,7 +151,7 @@ body.in-menu .hud * { pointer-events: none !important; }
 .overlay {
   position: fixed; inset: 0; display: grid; place-items: center; overflow-y: auto;
   padding: calc(env(safe-area-inset-top, 0px) + 20px) 18px calc(env(safe-area-inset-bottom, 0px) + 20px);
-  background: radial-gradient(120% 80% at 50% 40%, rgba(8, 30, 16, 0.15), rgba(6, 22, 12, 0.72));
+  background: radial-gradient(120% 80% at 50% 45%, rgba(8, 30, 16, 0.05), rgba(6, 22, 12, 0.55));
   transition: opacity 0.4s ease;
 }
 .overlay.hidden { opacity: 0; pointer-events: none; visibility: hidden; transition: opacity 0.4s ease, visibility 0s 0.4s; }
@@ -155,6 +163,24 @@ body.in-menu .hud * { pointer-events: none !important; }
 }
 .title span { display: block; color: #8ee07a; text-shadow: 0 4px 0 #49a24a, 0 8px 0 #2d7a34, 0 12px 0 #1b4d21, 0 20px 30px rgba(0, 0, 0, 0.45); }
 .subtitle { margin: 0 0 12px; font-size: 34px; color: var(--sun); }
+.heroes { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.hero { width: clamp(70px, 20vw, 128px); height: auto; filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.35)); }
+.hero.aqua { animation: bob 2.4s ease-in-out infinite; transform-origin: 50% 90%; }
+.hero.leorus { animation: bob 2.4s ease-in-out -1.2s infinite; transform-origin: 50% 90%; }
+@keyframes bob { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-10px) rotate(4deg); } }
+.n-aqua { color: #7fd0ff; }
+.n-leorus { color: #ffc46a; }
+.credit {
+  display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; padding: 8px 16px 8px 10px; border-radius: 16px;
+  background: rgba(10, 30, 50, 0.45); color: var(--ink); text-decoration: none; text-align: left; line-height: 1.15;
+  font-size: 14px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+.credit img { width: 40px; height: 40px; }
+.credit b { color: #7fd0ff; }
+.credit em { font-style: normal; font-weight: 600; letter-spacing: 0.04em; opacity: 0.85; }
+.credit:hover { background: rgba(10, 30, 50, 0.6); }
+.win-avatar { width: 120px; height: 120px; object-fit: contain; display: block; margin: 0 auto 6px; filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.4)); animation: bob 1.6s ease-in-out infinite; }
+.stat b img { width: 26px; height: 26px; vertical-align: -6px; margin-right: 6px; object-fit: contain; }
 .lede { margin: 24px auto 22px; max-width: 34ch; font-size: 17px; line-height: 1.45; font-weight: 500; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55); }
 .btns { display: flex; flex-direction: column; gap: 13px; align-items: center; }
 .btn {
@@ -204,6 +230,9 @@ button:focus-visible { outline: 4px solid #fff; outline-offset: 3px; }
   .card { padding: 6px 10px 6px 6px; gap: 6px; }
   .card.right { padding: 6px 6px 6px 10px; }
   .chip { width: 22px; height: 22px; }
+  .avatar { width: 32px; height: 32px; }
+  .role { display: none; }
+  .credit { margin-top: 12px; font-size: 13px; }
   .card .name { font-size: 15px; }
   .card .where { font-size: 12px; }
   .roll { width: 74px; height: 74px; border-radius: 22px; }
@@ -213,9 +242,14 @@ button:focus-visible { outline: 4px solid #fff; outline-offset: 3px; }
   .stats { grid-template-columns: 1fr; }
 }
 @media (max-width: 360px) {
-  .card .where { font-size: 11px; }
+  .card .where { font-size: 10.5px; }
   .card .name { font-size: 14px; }
+  .roll { width: 62px; height: 62px; border-radius: 18px; }
+  .roll svg { width: 40px; height: 40px; }
+  .card, .card.right { padding: 5px 7px; gap: 4px; }
+  .bottombar { gap: 5px; }
   .chip { display: none; }
+  .avatar { width: 26px; height: 26px; }
 }
 @media (max-height: 500px) and (orientation: landscape) {
   .lede { margin: 12px auto; }
@@ -223,9 +257,12 @@ button:focus-visible { outline: 4px solid #fff; outline-offset: 3px; }
   .btns { gap: 9px; }
   .btn { padding: 9px 20px; font-size: 19px; }
   .fine { display: none; }
+  .hero { width: 64px; }
+  .credit { margin-top: 8px; padding: 4px 10px 4px 6px; }
+  .credit img { width: 28px; height: 28px; }
   .track { margin-top: 6px; }
   .roll { width: 70px; height: 70px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .roll.ready { animation: none; }
+  .roll.ready, .hero, .win-avatar, .card.active .avatar { animation: none; }
 }

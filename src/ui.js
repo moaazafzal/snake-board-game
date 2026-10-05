@@ -43,6 +43,7 @@ export class UI {
   render(s, display, ctl) {
     s.players.forEach((p, i) => {
       $('name' + i).textContent = p.name;
+      $('role' + i).textContent = s.mode === 'ai' ? (p.isAI ? 'CPU' : 'YOU') : `P${i + 1}`;
       $('where' + i).textContent = p.skip ? 'Stuck in quicksand' : this.where(display[i]);
       $('badge' + i).textContent = p.shield ? '🛡️' : '';
       $('badge' + i).title = p.shield ? 'Shield charm ready' : '';
@@ -52,8 +53,8 @@ export class UI {
     const cur = s.players[s.current];
     let label = '';
     if (ctl.started && s.winner === null) {
-      if (cur.skip) label = s.mode === 'ai' && !cur.isAI ? "You're stuck in quicksand" : `${cur.name} is stuck in quicksand`;
-      else if (s.mode === 'ai') label = cur.isAI ? (ctl.busy ? 'Computer is rolling' : "Computer's turn") : 'Your turn';
+      if (cur.skip) label = `${cur.name} is stuck in quicksand`;
+      else if (s.mode === 'ai') label = cur.isAI ? (ctl.busy ? `${cur.name} is rolling` : `${cur.name}'s turn`) : `Your turn, ${cur.name}`;
       else label = `${cur.name}'s turn`;
     }
     this.el.turn.textContent = label;
@@ -125,12 +126,14 @@ export class UI {
   showWin(s, vsAI) {
     const w = s.players[s.winner];
     const human = vsAI && !w.isAI;
-    $('winTitle').textContent = vsAI ? (human ? 'You win!' : 'Computer wins') : `${w.name} wins!`;
+    $('winTitle').textContent = `${w.name} wins!`;
     $('winText').textContent = `${human ? 'You' : w.name} reached tile 100 in ${w.rolls} ${w.rolls === 1 ? 'roll' : 'rolls'}.`;
+    $('winAvatar').src = s.winner === 0 ? './avatars/aqua.png' : './avatars/leorus.png';
+    $('winAvatar').alt = w.name;
     const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
     $('stats').innerHTML = s.players
       .map(
-        (p, i) => `<div class="stat" style="--c:${i === 0 ? '#3c86e8' : '#f0703c'}"><b>${p.name}</b>` +
+        (p, i) => `<div class="stat" style="--c:${i === 0 ? '#3c9cf0' : '#f0943c'}"><b><img src="./avatars/${i === 0 ? 'aqua' : 'leorus'}.png" alt="">${p.name}</b>` +
           `<span>${plural(p.rolls, 'roll', 'rolls')} · ${plural(p.sixes, 'six', 'sixes')}</span>` +
           `<span>${plural(p.shortcuts, 'shortcut', 'shortcuts')} taken</span>` +
           `<span>${plural(p.snakes, 'snake', 'snakes')} met</span>` +

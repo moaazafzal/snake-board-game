@@ -8,9 +8,9 @@ A 3D snakes-and-ladders race through the jungle, built for the web with three.js
 
 ## Features
 
-- **Two modes:** play against the computer, or with a friend on the same device.
+- **Two heroes:** Aqua, a glossy water droplet (blue), and Leorus, a golden horned lion cub (orange). Play as Aqua against Leorus (computer), or with a friend on the same device.
 - **Shortcuts:** rope bridges, swinging vines and zip lines carry you forward.
-- **Moving snakes:** 7 snakes, each with two lairs. Every 6 turns one of them slithers to its other spot (never onto or next to a pawn).
+- **Moving snakes:** 7 snakes, each with two lairs. Every 6 turns one of them slithers to its other spot (never onto or next to a pawn). Snakes crawl head-first and the whole body follows the head's path; on the main menu they roam freely around the board.
 - **Jungle tiles:**
   - Golden mango: roll again.
   - Shield charm: blocks the next snake.
@@ -71,4 +71,6 @@ Deployment: every push to `main` runs the unit tests, builds, and publishes to G
 
 ## Credits
 
-Original code and procedural art. The only external assets are the three.js library and the Fredoka font from Google Fonts (SIL Open Font License).
+Made by **Moaaz** · [Aqua Games](https://moaazafzal.github.io/aquagames/).
+
+Original code; board, snakes and 3D heroes are procedural. Aqua and Leorus character art and the Aqua Games logo © Aqua Games. Libraries: three.js; font: Fredoka (SIL Open Font License).
