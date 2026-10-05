@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { World } from './world.js';
 import { buildDecor } from './decor.js';
 import { SnakeView, spineFor } from './snake.js';
+import { planCrawl, cruise } from './slither.js';
 import { buildShortcut } from './shortcuts.js';
 import { Pawn } from './pawn.js';
 import { Dice, Collectible, ReachMarkers, Particles } from './props.js';
@@ -281,42 +282,56 @@ export class GameView {
     this.focusOn(focus, 12);
     pawn.setMood('scared', 10);
     snake.look = target.clone().add(new THREE.Vector3(0, 0.6, 0));
+    snake.strikeTarget.copy(target);
     sfx.hiss();
     vibrate([40, 30, 120]);
     try {
-      await a.tween(0.5, (k) => {
-        snake.rear = ease.outBack(k);
-        snake.jaw = k * 0.6;
-      });
-      snake.lungeTarget.copy(target);
-      await a.tween(0.22, (k) => {
-        snake.lunge = k;
-        snake.jaw = 0.6 + k * 0.4;
+      // 1. rise up and draw back into an S, mouth parting
+      await a.tween(0.55, (k) => {
+        snake.rear = k;
+        snake.jaw = k * 0.35;
+        pawn.body.rotation.z = Math.sin(k * 20) * 0.06;
+      }, ease.outCubic);
+      pawn.body.rotation.z = 0;
+      await a.wait(0.12);
+      // 2. strike: fast thrust with the mouth wide open
+      await a.tween(0.17, (k) => {
+        snake.strike = k;
+        snake.rear = 1 - k * 0.55;
+        snake.jaw = 0.35 + k * 0.65;
       }, ease.inQuad);
       sfx.gulp();
       this.world.rig.shake = 0.35;
-      await a.tween(0.2, (k) => pawn.root.scale.setScalar(Math.max(0.01, 1 - k)), ease.inQuad);
+      // 3. pawn is pulled into the mouth
+      const mouth = new THREE.Vector3();
+      const p0 = pawn.root.position.clone();
+      await a.tween(0.2, (k) => {
+        snake.head.getWorldPosition(mouth);
+        pawn.root.position.lerpVectors(p0, mouth.setY(Math.max(0, mouth.y - 0.6)), k);
+        pawn.root.scale.setScalar(Math.max(0.01, 1 - k));
+      }, ease.inQuad);
       pawn.root.visible = false;
-      await a.tween(0.35, (k) => {
-        snake.lunge = 1 - k;
+      // 4. recoil to rest, mouth closing
+      await a.tween(0.45, (k) => {
+        snake.strike = 1 - k;
+        snake.rear = 0.45 * (1 - k);
         snake.jaw = 1 - k;
-        snake.rear = 1 - k * 0.6;
-      }, ease.outQuad);
+      }, ease.outCubic);
       snake.look = null;
-      // bulge travels down the body; the camera rides along
-      const dur = THREE.MathUtils.clamp(snake.len / 12, 1.3, 2.4);
+      // 5. the gulp travels down the body; the camera rides along
+      const dur = THREE.MathUtils.clamp(snake.len / 11, 1.3, 2.4);
       sfx.slide(dur);
       await a.tween(dur, (k) => {
-        snake.bulge = 0.04 + k * 0.92;
+        snake.bulge = 0.05 + k * 0.91;
         snake.pointAt(snake.bulge, focus);
       }, ease.inOutSine);
-      snake.bulge = -1;
-      snake.rear = 0;
     } finally {
       snake.bulge = -1;
-      snake.lunge = 0;
+      snake.strike = 0;
+      snake.rear = 0;
       snake.jaw = 0;
       snake.look = null;
+      pawn.body.rotation.z = 0;
     }
   }
 
@@ -345,27 +360,33 @@ export class GameView {
     const epoch = this.epoch;
     this.focusOn(target.clone(), 12);
     snake.look = target.clone().add(new THREE.Vector3(0, 0.6, 0));
+    // the strike stops at the bubble's surface
+    const away = new THREE.Vector3().subVectors(snake.base[0], target).setY(0);
+    if (away.lengthSq() < 1e-6) away.set(0, 0, 1);
+    snake.strikeTarget.copy(target).addScaledVector(away.normalize(), 1.15);
     sfx.hiss();
     try {
-      await a.tween(0.45, (k) => { snake.rear = ease.outBack(k); snake.jaw = k * 0.8; });
-      snake.lungeTarget.copy(target).addScaledVector(new THREE.Vector3().subVectors(snake.head.position, target).setY(0).normalize(), 1.1);
-      await a.tween(0.2, (k) => (snake.lunge = k), ease.inQuad);
+      await a.tween(0.5, (k) => { snake.rear = k; snake.jaw = k * 0.5; }, ease.outCubic);
+      await a.wait(0.1);
+      await a.tween(0.16, (k) => { snake.strike = k; snake.rear = 1 - k * 0.5; snake.jaw = 0.5 + k * 0.5; }, ease.inQuad);
       sfx.block();
       this.world.rig.shake = 0.25;
       pawn.setMood('wow', 2);
       this.particles.emit(target.clone().add(new THREE.Vector3(0, 1, 0)), 36, ['#7fd7ff', '#ffffff', '#ffd36a'], { speed: 3.2, up: 2.6, life: 0.9 });
-      await a.tween(0.4, (k) => {
-        snake.lunge = 1 - ease.outCubic(k);
-        snake.rear = 1 - k;
-        snake.jaw = 0.8 * (1 - k);
-        pawn.bubble.scale.setScalar(1 + k * 0.7);
-        pawn.bubble.material.opacity = 0.28 * (1 - k);
+      // knocked back with a springy wobble, bubble pops
+      await a.tween(0.75, (k) => {
+        snake.strike = Math.max(0, 1 - ease.outElastic(Math.min(1, k * 1.2)));
+        snake.rear = 0.5 * (1 - k);
+        snake.jaw = 1 - k;
+        const kb = Math.min(1, k * 2);
+        pawn.bubble.scale.setScalar(1 + kb * 0.7);
+        pawn.bubble.material.opacity = 0.28 * (1 - kb);
       });
     } finally {
       if (epoch === this.epoch) pawn.bubble.visible = false;
       pawn.bubble.scale.setScalar(1);
       pawn.bubble.material.opacity = 0.28;
-      snake.lunge = 0;
+      snake.strike = 0;
       snake.rear = 0;
       snake.jaw = 0;
       snake.look = null;
@@ -373,29 +394,59 @@ export class GameView {
     }
   }
 
+  /** The snake crawls head-first to its new lair; every part of the body follows the head's path. */
   async moveSnake(si, fromRoute, toRoute) {
     const snake = this.snakes[si];
-    const from = spineFor(fromRoute.head, fromRoute.tail, snake.seed);
-    const to = spineFor(toRoute.head, toRoute.tail, snake.seed);
-    const focus = from[0].clone();
     const epoch = this.epoch;
-    this.focusOn(focus, 20);
+    const oldBody = snake.base.map((p) => p.clone());
+    const newBody = snake.spineOf(toRoute);
+    const avoid = this.pawns.filter((p) => p.root.visible).map((p) => p.root.position.clone());
+    const plan = planCrawl(oldBody, newBody, { avoid });
+    const travel = plan.s1 - plan.s0;
+    const dur = THREE.MathUtils.clamp(travel / 9.5, 2.2, 5.5);
+    const body = oldBody.map((p) => p.clone());
+    const focus = snake.head.position.clone();
+    this.focusOn(focus, 19);
     sfx.hiss();
-    sfx.rumble();
+    const jumping = new Set();
     try {
-      await this.anim.wait(0.5);
-      await this.anim.tween(3.0, (k) => {
-        snake.slither = Math.sin(Math.PI * k);
-        snake.blendRoutes(from, to, ease.inOutSine(k));
-        focus.lerpVectors(from[0], to[0], ease.inOutSine(k));
+      // wake up: lift the head and look toward the destination
+      snake.look = newBody[0].clone().add(new THREE.Vector3(0, 0.5, 0));
+      await this.anim.tween(0.5, (k) => (snake.crawlLift = 0.35 * k), ease.outCubic);
+      snake.look = null;
+      snake.flick = 0; // no idle tail swish while travelling
+      snake.crawling = true;
+      sfx.slither(dur / this.anim.speed);
+      await this.anim.tween(dur, (k) => {
+        const sHead = plan.s0 + travel * cruise(k);
+        const L = THREE.MathUtils.lerp(plan.L0, plan.L1, cruise(k));
+        plan.track.sampleBody(sHead, L, body);
+        snake.setBody(body);
+        focus.lerp(body[0], 0.25);
+        // pawns hop over the passing body instead of being crawled through
+        this.pawns.forEach((pw, pi) => {
+          if (!pw.root.visible || this.sunk[pi] || jumping.has(pi)) return;
+          const at = pw.root.position;
+          for (let r = 0; r < body.length; r += 3) {
+            if (Math.hypot(body[r].x - at.x, body[r].z - at.z) < 1.05) {
+              jumping.add(pi);
+              pw.setMood('scared', 1.2);
+              this.anim.tween(0.62, (q) => (pw.body.position.y = Math.sin(Math.PI * q) * 1.35), ease.linear)
+                .catch(() => {})
+                .finally(() => { jumping.delete(pi); if (!this.sunk[pi]) pw.body.position.y = 0; });
+              break;
+            }
+          }
+        });
       });
+      snake.crawling = false;
+      await this.anim.tween(0.45, (k) => (snake.crawlLift = 0.35 * (1 - k)), ease.inOutSine);
     } finally {
       if (epoch === this.epoch) {
-        snake.slither = 0;
         snake.setRoute(toRoute);
       }
     }
-    await this.anim.wait(0.4);
+    await this.anim.wait(0.3);
     this.unfocus();
   }
 

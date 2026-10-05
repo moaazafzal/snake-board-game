@@ -8,24 +8,54 @@ const SIDES = 9;
 const UP = new THREE.Vector3(0, 1, 0);
 
 /** Spine points for a snake lying from head tile to tail tile. */
-export function spineFor(head, tail, seed = 0) {
-  const H = tilePos(head).add(new THREE.Vector3(0.9, 0, -0.9));
-  const T = tilePos(tail).add(new THREE.Vector3(-0.8, 0, 0.8));
+function spineCurve(H, T, seed, amp) {
   const len = H.distanceTo(T);
   const dir = T.clone().sub(H).normalize();
   const perp = new THREE.Vector3(-dir.z, 0, dir.x);
   const waves = Math.max(1, Math.round(len / 10));
-  const amp = Math.min(2.4, 0.8 + len * 0.07);
   const ctrl = [];
   const N = 28;
   for (let i = 0; i <= N; i++) {
     const t = i / N;
-    const env = Math.pow(Math.sin(Math.PI * t), 0.6);
+    const env = Math.sin(Math.PI * t) * (0.65 + 0.35 * Math.sin(Math.PI * t)); // eases to zero at both ends: no hooks at head or tail
     const off = Math.sin(t * Math.PI * (waves + 0.5) * 2 + seed) * amp * env;
     ctrl.push(H.clone().lerp(T, t).addScaledVector(perp, off));
   }
-  const curve = new THREE.CatmullRomCurve3(ctrl, false, 'centripetal');
+  return new THREE.CatmullRomCurve3(ctrl, false, 'centripetal');
+}
+
+/**
+ * Resting spine (head first) for a snake lying from head tile to tail tile.
+ * With `bodyLength`, the S-curve amplitude is solved so the snake keeps the
+ * same length in every lair (a snake doesn't stretch when it moves).
+ */
+export function spineFor(head, tail, seed = 0, bodyLength = null) {
+  const H = tilePos(head).add(new THREE.Vector3(0.9, 0, -0.9));
+  const T = tilePos(tail).add(new THREE.Vector3(-0.8, 0, 0.8));
+  const len = H.distanceTo(T);
+  let amp = Math.min(2.4, 0.8 + len * 0.07);
+  let curve = spineCurve(H, T, seed, amp);
+  if (bodyLength) {
+    let lo = 0;
+    let hi = 4.5;
+    for (let k = 0; k < 22; k++) {
+      amp = (lo + hi) / 2;
+      curve = spineCurve(H, T, seed, amp);
+      if (curve.getLength() < bodyLength) lo = amp;
+      else hi = amp;
+    }
+  }
   return curve.getSpacedPoints(RINGS);
+}
+
+/** One body length per snake: the average of its two default lairs (each lair then curls a bit more or less). */
+export function bodyLengthFor(def, seed) {
+  let L = 0;
+  for (const r of def.routes) {
+    const pts = spineFor(r.head, r.tail, seed);
+    for (let i = 1; i < pts.length; i++) L += pts[i].distanceTo(pts[i - 1]);
+  }
+  return L / def.routes.length;
 }
 
 function patternColor(pattern, t, a, len, cols, out) {
@@ -52,19 +82,25 @@ export class SnakeView {
     this.scene = scene;
     this.seed = index * 1.7;
     this.time = Math.random() * 10;
-    this.base = spineFor(route.head, route.tail, this.seed);
+    this.bodyLength = bodyLengthFor(def, this.seed);
+    this.spines = new Map(def.routes.map((r) => [r, spineFor(r.head, r.tail, this.seed, this.bodyLength)]));
+    this.base = this.spineOf(route);
     this.pts = this.base.map((p) => p.clone());
     this.len = this.lengthOf(this.base);
 
     // animation channels (driven by the presentation layer)
-    this.rear = 0; // 0..1 head raised
-    this.lunge = 0; // 0..1 head pushed toward lungeTarget
-    this.lungeTarget = new THREE.Vector3();
+    this.rear = 0; // 0..1 front of the body raised and drawn back (ready to strike)
+    this.strike = 0; // 0..1 head thrust toward strikeTarget
+    this.strikeTarget = new THREE.Vector3();
     this.bulge = -1; // position (0..1) of a gulp bulge along the body
     this.jaw = 0; // 0..1 mouth open
-    this.wiggle = 1; // idle wiggle strength
-    this.slither = 0; // extra travelling wave during relocation
+    this.crawling = false; // body is being driven along a track (no idle motion)
+    this.crawlLift = 0; // head held slightly higher while travelling
     this.look = null; // optional point to look at
+    this.dist = new Float32Array(RINGS + 1);
+    this.flick = 0; // tail-tip swish (idle life)
+    this.flickDir = 1;
+    this.nextTailFlick = 2 + Math.random() * 5;
 
     const cols = def.colors.map((c) => new THREE.Color(c));
     const vCount = (RINGS + 1) * SIDES;
@@ -155,18 +191,25 @@ export class SnakeView {
   }
 
   /** Instantly place on a route (used on reset). */
+  /** Resting spine for one of this snake's lairs (cached, returned as a fresh copy). */
+  spineOf(route) {
+    const key = this.def.routes.find((r) => r.head === route.head && r.tail === route.tail) || route;
+    if (!this.spines.has(key)) this.spines.set(key, spineFor(route.head, route.tail, this.seed, this.bodyLength));
+    return this.spines.get(key).map((p) => p.clone());
+  }
+
   setRoute(route) {
-    this.base = spineFor(route.head, route.tail, this.seed);
+    this.base = this.spineOf(route);
     this.len = this.lengthOf(this.base);
-    this.rear = this.lunge = this.jaw = this.slither = 0;
+    this.rear = this.strike = this.jaw = this.crawlLift = 0;
     this.bulge = -1;
-    this.wiggle = 1;
+    this.crawling = false;
     this.look = null;
   }
 
-  /** Blend the resting spine between two routes (k = 0..1). */
-  blendRoutes(fromPts, toPts, k) {
-    for (let i = 0; i <= RINGS; i++) this.base[i].lerpVectors(fromPts[i], toPts[i], k);
+  /** Drive the resting body directly (used while crawling along a track). */
+  setBody(points) {
+    for (let i = 0; i <= RINGS; i++) this.base[i].copy(points[i]);
     this.len = this.lengthOf(this.base);
   }
 
@@ -189,36 +232,76 @@ export class SnakeView {
   update(dt) {
     this.time += dt;
     const time = this.time;
+    const base = this.base;
     const pts = this.pts;
-    const L = this.len;
-    // spine = resting curve + travelling wave, head raise and lunge
-    for (let i = 0; i <= RINGS; i++) {
-      const t = i / RINGS;
-      const p = pts[i].copy(this.base[i]);
-      const prev = this.base[Math.max(0, i - 1)];
-      const next = this.base[Math.min(RINGS, i + 1)];
-      const tx = next.x - prev.x;
-      const tz = next.z - prev.z;
-      const tl = Math.hypot(tx, tz) || 1;
-      const side = Math.sin(t * L * 0.85 - time * (2.2 + this.slither * 6)) * (0.08 * this.wiggle + 0.35 * this.slither) * THREE.MathUtils.smoothstep(t, 0.04, 0.2);
-      p.x += (-tz / tl) * side;
-      p.z += (tx / tl) * side;
-      const r = this.radius(t);
-      p.y = r * 0.92 + 0.02;
-      const neck = Math.max(0, 1 - t / 0.09);
-      p.y += neck * neck * (0.35 + this.rear * 1.6) + Math.sin(time * 1.3 + this.seed) * 0.05 * neck;
-      if (this.lunge > 0 && neck > 0) {
-        const w = neck * neck * this.lunge;
-        p.x += (this.lungeTarget.x - this.base[0].x) * w;
-        p.z += (this.lungeTarget.z - this.base[0].z) * w;
-        p.y += (this.lungeTarget.y + 0.6 - p.y) * w * 0.7;
+    const dist = this.dist;
+    const N = RINGS;
+    // arc length from the head, measured on the resting body
+    dist[0] = 0;
+    for (let i = 1; i <= N; i++) dist[i] = dist[i - 1] + Math.hypot(base[i].x - base[i - 1].x, base[i].z - base[i - 1].z);
+    const L = dist[N];
+    this.len = L;
+    const fx = base[0].x - base[4].x;
+    const fz = base[0].z - base[4].z;
+    const fl = Math.hypot(fx, fz) || 1;
+    const fwdX = fx / fl;
+    const fwdZ = fz / fl;
+
+    // idle life: breathing and an occasional tail-tip swish (the body itself stays put)
+    const idle = !this.crawling;
+    const breathe = idle ? 1 + 0.022 * Math.sin(time * 1.6 + this.seed) : 1;
+    if (idle) {
+      this.nextTailFlick -= dt;
+      if (this.nextTailFlick <= 0) {
+        this.flick = 1;
+        this.flickDir = Math.random() < 0.5 ? -1 : 1;
+        this.nextTailFlick = 3 + Math.random() * 6;
       }
     }
+    if (this.flick > 0) this.flick = Math.max(0, this.flick - dt * 0.9);
+    const flickWave = this.flick > 0 ? Math.sin((1 - this.flick) * Math.PI * 3) * this.flick : 0;
+
+    const NECK = 3.4;
+    const sx = this.strikeTarget.x - base[0].x;
+    const sz = this.strikeTarget.z - base[0].z;
+    for (let i = 0; i <= N; i++) {
+      const b = base[i];
+      const p = pts[i].copy(b);
+      const d = dist[i];
+      const dTail = L - d;
+      if (flickWave !== 0 && dTail < 2.8) {
+        const prev = base[Math.max(0, i - 1)];
+        const next = base[Math.min(N, i + 1)];
+        const tx = next.x - prev.x;
+        const tz = next.z - prev.z;
+        const tl = Math.hypot(tx, tz) || 1;
+        const w = (1 - dTail / 2.8) ** 2;
+        const off = flickWave * this.flickDir * 0.42 * w;
+        p.x += (-tz / tl) * off;
+        p.z += (tx / tl) * off;
+      }
+      const r = this.radius(i / N) * breathe;
+      let y = r * 0.92 + 0.02;
+      const u = Math.max(0, 1 - d / NECK);
+      const wn = u * u * (3 - 2 * u); // smoothstep: 1 at the head, 0 one neck-length back
+      y += wn * wn * (0.3 + this.rear * 1.55 + this.crawlLift);
+      // rearing draws the head back into an S before the strike
+      const pull = this.rear * 0.6 * wn * wn;
+      p.x -= fwdX * pull;
+      p.z -= fwdZ * pull;
+      if (this.strike > 0) {
+        const ws = Math.pow(wn, 1.4) * this.strike;
+        p.x += sx * ws;
+        p.z += sz * ws;
+        y += (this.strikeTarget.y + 0.75 - y) * this.strike * wn * wn * 0.85;
+      }
+      p.y = y;
+    }
     // frames
-    for (let i = 0; i <= RINGS; i++) {
+    for (let i = 0; i <= N; i++) {
       const f = this.F[i];
-      f.t.subVectors(pts[Math.min(RINGS, i + 1)], pts[Math.max(0, i - 1)]);
-      if (f.t.lengthSq() < 1e-9) f.t.set(0, 0, 1);
+      f.t.subVectors(pts[Math.min(N, i + 1)], pts[Math.max(0, i - 1)]);
+      if (f.t.lengthSq() < 1e-9) f.t.set(fwdX, 0, fwdZ).negate();
       f.t.normalize();
       f.b.crossVectors(f.t, UP);
       if (f.b.lengthSq() < 1e-9) f.b.set(1, 0, 0);
@@ -227,9 +310,9 @@ export class SnakeView {
     }
     const P = this.positions;
     const Nn = this.normals;
-    for (let i = 0; i <= RINGS; i++) {
-      const t = i / RINGS;
-      const r = this.radius(t);
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const r = this.radius(t) * breathe;
       const f = this.F[i];
       const p = pts[i];
       for (let j = 0; j < SIDES; j++) {
@@ -252,14 +335,27 @@ export class SnakeView {
     this.geo.attributes.position.needsUpdate = true;
     this.geo.attributes.normal.needsUpdate = true;
 
-    // head follows the first ring
+    // head: follows the neck, keeps itself level, sways gently when resting
     const h0 = pts[0];
-    const dir = new THREE.Vector3().subVectors(pts[0], pts[4]);
-    if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
+    const dir = this._dir || (this._dir = new THREE.Vector3());
+    dir.subVectors(pts[0], pts[3]);
+    dir.y *= 0.35;
+    if (dir.lengthSq() < 1e-6) dir.set(fwdX, 0, fwdZ);
     dir.normalize();
+    if (this.strike > 0.02) {
+      const to = new THREE.Vector3(this.strikeTarget.x - h0.x, (this.strikeTarget.y + 0.75 - h0.y) * 0.4, this.strikeTarget.z - h0.z);
+      if (to.lengthSq() > 1e-4) dir.lerp(to.normalize(), Math.min(1, this.strike * 1.5)).normalize();
+    } else if (this.look) {
+      const to = this.look.clone().sub(h0);
+      to.y *= 0.4;
+      if (to.lengthSq() > 1e-4) dir.lerp(to.normalize(), 0.65).normalize();
+    }
+    if (idle && !this.look && this.rear < 0.05) {
+      const yaw = Math.sin(time * 0.55 + this.seed) * 0.2 + Math.sin(time * 1.7 + this.seed * 2) * 0.04;
+      dir.applyAxisAngle(UP, yaw);
+    }
     this.head.position.copy(h0).addScaledVector(dir, 0.05);
-    const look = this.look ? this.look.clone().sub(this.head.position).normalize().lerp(dir, 0.35) : dir;
-    this.head.lookAt(this.head.position.clone().add(look));
+    this.head.lookAt(this.head.position.clone().add(dir));
     this.upperJaw.rotation.x = -this.jaw * 0.55;
     this.lowerJaw.rotation.x = this.jaw * 0.45;
 
@@ -267,7 +363,7 @@ export class SnakeView {
     this.nextFlick -= dt;
     if (this.nextFlick <= 0) {
       this.flick = 1;
-      this.nextFlick = 2 + Math.random() * 4;
+      this.nextFlick = this.crawling || this.look ? 0.5 + Math.random() * 0.6 : 2 + Math.random() * 4;
     }
     if (this.flick > 0) {
       this.flick = Math.max(0, this.flick - dt * 2.2);

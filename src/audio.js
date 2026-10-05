@@ -109,6 +109,10 @@ class Sfx {
   sand() { this.noise(0.9, { vol: 0.18, f: 260, f2: 120, q: 0.8, type: 'lowpass' }); this.tone(200, 0.6, { vol: 0.08, to: 90 }); }
   splash() { this.noise(0.5, { vol: 0.25, f: 1800, f2: 600, q: 0.7 }); this.noise(0.25, { vol: 0.12, f: 4000, q: 1, delay: 0.1 }); }
   bounce() { this.tone(560, 0.3, { type: 'square', vol: 0.04, to: 260 }); }
+  slither(d) {
+    // soft scales-on-wood rustle
+    for (let t = 0; t < d; t += 0.45) this.noise(0.5, { vol: 0.07, f: 2600 + Math.random() * 800, f2: 1500, q: 0.7, delay: t });
+  }
   rumble() { this.noise(1.2, { vol: 0.12, f: 180, q: 0.8, type: 'lowpass' }); }
   win() {
     [0, 4, 7, 12, 7, 12, 16, 19, 24].forEach((s, i) => {

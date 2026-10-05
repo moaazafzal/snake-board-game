@@ -75,7 +75,7 @@ export const checkSync = (page) => page.evaluate(() => {
     const tt = tile(r.tail);
     const dt = d2(sn.base[sn.base.length - 1], { x: tt.x - 0.8, z: tt.z + 0.8 });
     if (dt > 0.6) probs.push(`snake ${i} tail drawn away from ${r.tail}`);
-    if (sn.bulge !== -1 || sn.lunge !== 0 || sn.slither !== 0) probs.push(`snake ${i} stuck mid-animation`);
+    if (sn.bulge !== -1 || sn.strike !== 0 || sn.rear !== 0 || sn.crawling || sn.crawlLift !== 0) probs.push(`snake ${i} stuck mid-animation`);
   });
   for (const [t, c] of v.mangoes) if (c.g.visible !== s.mangoes.includes(t)) probs.push(`mango ${t} visible=${c.g.visible} but state=${s.mangoes.includes(t)}`);
   for (const [t, c] of v.shieldItems) if (c.g.visible !== s.shields.includes(t)) probs.push(`shield charm ${t} visible=${c.g.visible} but state=${s.shields.includes(t)}`);
